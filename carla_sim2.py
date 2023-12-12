@@ -18,7 +18,8 @@ import copy
 import csv
 
 
-main_image_shape = (800, 600)
+main_image_shape = (1280, 720)
+plan_fre = 3
 
 
 def get_trajectory_from_lane_detector(ld, image):
@@ -128,7 +129,7 @@ def main(use_lane_detector=False, ex=False, save_video=False, half_image=False):
     display = pygame.display.set_mode(
         main_image_shape,
         pygame.HWSURFACE | pygame.DOUBLEBUF)    # 创建游戏窗口
-    font = pygame.font.SysFont("monospace", 15) # 设置字体
+    font = pygame.font.SysFont('ubuntumono', 14) # 设置字体
     clock = pygame.time.Clock()                 # 创建时钟，时钟对象可以用来控制游戏的帧率
 
     client = carla.Client('localhost', 2000)
@@ -137,6 +138,7 @@ def main(use_lane_detector=False, ex=False, save_video=False, half_image=False):
     #client.load_world('Town06')
     client.load_world('Town04')
     world = client.get_world()
+    # world.unload_map_layer(carla.MapLayer.Buildings)
 
     weather_preset, _ = find_weather_presets()[1]
     world.set_weather(weather_preset)
@@ -155,10 +157,14 @@ def main(use_lane_detector=False, ex=False, save_video=False, half_image=False):
             m.get_spawn_points()[90])                                        # 车辆位置选择为生成点[90]
         actor_list.append(vehicle)
 
+        # 相机输出的画面大小
+        camera_bp = world.get_blueprint_library().find('sensor.camera.rgb')
+        camera_bp.set_attribute('image_size_x',str(main_image_shape[0]))
+        camera_bp.set_attribute('image_size_y',str(main_image_shape[1]))
 
         # visualization cam (no functionality)
         camera_rgb = world.spawn_actor(
-            blueprint_library.find('sensor.camera.rgb'),
+            camera_bp,
             carla.Transform(carla.Location(x=-5.5, z=2.8), carla.Rotation(pitch=-10)),
             attach_to=vehicle)
         actor_list.append(camera_rgb)
@@ -167,6 +173,7 @@ def main(use_lane_detector=False, ex=False, save_video=False, half_image=False):
         frame = 0
         max_error = 0
         FPS = 30
+        plan_count = 0
         # Create a synchronous mode context.
         with CarlaSyncMode(world, *sensors, fps=FPS) as sync_mode:
             while True:
@@ -182,9 +189,10 @@ def main(use_lane_detector=False, ex=False, save_video=False, half_image=False):
                 tick_response = sync_mode.tick(timeout=2.0)
 
                 if use_lane_detector:
-                    snapshot, image_rgb, image_windshield = tick_response
-                    if frame % 2 == 0:
-                        traj, viz = get_trajectory_from_lane_detector(ld, image_windshield)
+                    pass
+                    # snapshot, image_rgb, image_windshield = tick_response
+                    # if frame % 2 == 0:
+                    #     traj, viz = get_trajectory_from_lane_detector(ld, image_windshield)
                 else:
                     snapshot, image_rgb = tick_response
                     traj = get_trajectory_from_map(m, vehicle,transform2vehicle=0,contain_yaw=1)
@@ -210,8 +218,11 @@ def main(use_lane_detector=False, ex=False, save_video=False, half_image=False):
                          speed,
                          0.5*(vehicle.get_wheel_steer_angle(carla.VehicleWheelLocation.FR_Wheel)+vehicle.get_wheel_steer_angle(carla.VehicleWheelLocation.FL_Wheel))]
                 
-                throttle, steer = controller.get_control(traj,traj_object, speed, desired_speed=25, dt=1./FPS,state = state)
+                if plan_count%plan_fre == 0:
+                    throttle, steer = controller.get_control(traj,traj_object, speed, desired_speed=25, dt=1./FPS,state = state)
+                
                 send_control(vehicle, throttle, steer, 0)
+                plan_count = plan_count + 1
 
                 fps = round(1.0 / snapshot.timestamp.delta_seconds)
 
@@ -222,25 +233,53 @@ def main(use_lane_detector=False, ex=False, save_video=False, half_image=False):
 
                 # Draw the display.
                 image_rgb = copy.copy(carla_img_to_array(image_rgb))
-                if use_lane_detector:
-                    viz = cv2.resize(viz, (400,200), interpolation = cv2.INTER_AREA)
-                    image_rgb[0:viz.shape[0], 0:viz.shape[1],:] = viz
-					# white background for text
-                    image_rgb[10:130,-280:-10, : ] = [255,255,255]
                 draw_image_np(display, image_rgb) # 在Pygame显示中绘制图像
 
                 # draw txt
-                dy = 20
-                texts = ["FPS (real):          {}".format(int(clock.get_fps())),
-                         "FPS (simulated):     {}".format(fps),
-                         "speed (m/s):         {:.2f}".format(speed),
-                         "lateral error (cm):  {}".format(cross_track_error),
-                         "max lat. error (cm): {}".format(max_error)
+                dy = 18
+                texts = ["FPS (real):                {}".format(int(clock.get_fps())),
+                         "FPS (simulated):           {}".format(fps),
+                         "speed (m/s):               {:.2f}".format(speed),
+                         "lateral error (cm):        {}".format(cross_track_error),
+                         "max lat. error (cm):       {}".format(max_error)
                         ]
+
+                info_surface = pygame.Surface((220, main_image_shape[1]))
+                info_surface.set_alpha(100)
+                display.blit(info_surface, (0, 0))    
                 
                 for it,t in enumerate(texts):
                     display.blit(
-                        font.render(t, True, (0,255,0)), (image_rgb.shape[1]-270, 20+dy*it))
+                        font.render(t, True, (255,255,255)), (5, 20+dy*it))
+                
+                v_offset =  20+dy*it + dy
+                display.blit( font.render("Throttle:", True, (255,255,255)), (5, v_offset))
+
+                
+                throttle_rate = np.clip(throttle, 0.0, 1.0)
+                # throttle_rate = vehicle.get_control().throttle
+                bar_width = 106
+                bar_h_offset = 100
+                rect_border = pygame.Rect((bar_h_offset, v_offset+6), (bar_width, 6))
+                pygame.draw.rect(display, (255, 255, 255), rect_border, 1)
+
+                rect = pygame.Rect((bar_h_offset, v_offset+6), (throttle_rate * bar_width, 6))
+                pygame.draw.rect(display, (255, 255, 255), rect)
+
+                v_offset = v_offset + dy
+
+                display.blit( font.render("Steer:", True, (255,255,255)), (5, v_offset))
+                steer_rate = np.clip(steer, -1.0, 1.0)
+                # steer_rate = vehicle.get_control().steer
+                bar_width = 106
+                bar_h_offset = 100
+                rect_border = pygame.Rect((bar_h_offset, v_offset+6), (bar_width, 6))
+                pygame.draw.rect(display, (255, 255, 255), rect_border, 1)
+
+                rect = pygame.Rect(((bar_h_offset+(steer_rate+1)/2*bar_width), v_offset+6), (6, 6))
+                pygame.draw.rect(display, (255, 255, 255), rect)
+
+
 
                 pygame.display.flip() # 将绘制的图像显示在屏幕上
 
