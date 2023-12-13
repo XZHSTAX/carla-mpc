@@ -19,7 +19,9 @@ import csv
 
 
 main_image_shape = (1280, 720)
-plan_fre = 3
+FPS = 30
+plan_fre = 3    # 实际上这里的频率指的是，实际程序运行多少次，mpc规划控制运行一次
+mpc_sample_time = 1./FPS * plan_fre
 
 
 def get_trajectory_from_lane_detector(ld, image):
@@ -164,15 +166,16 @@ def main(use_lane_detector=False, ex=False, save_video=False, half_image=False):
 
         # visualization cam (no functionality)
         camera_rgb = world.spawn_actor(
-            camera_bp,
-            carla.Transform(carla.Location(x=-5.5, z=2.8), carla.Rotation(pitch=-10)),
-            attach_to=vehicle)
+                                    camera_bp,
+                                    carla.Transform(carla.Location(x=-5.5, z=2.8), carla.Rotation(pitch=-10)),
+                                    attach_to=vehicle)
+        
         actor_list.append(camera_rgb)
         sensors = [camera_rgb]
 
         frame = 0
         max_error = 0
-        FPS = 30
+        
         plan_count = 0
         # Create a synchronous mode context.
         with CarlaSyncMode(world, *sensors, fps=FPS) as sync_mode:
@@ -188,27 +191,21 @@ def main(use_lane_detector=False, ex=False, save_video=False, half_image=False):
                 # Advance the simulation and wait for the data. 
                 tick_response = sync_mode.tick(timeout=2.0)
 
-                if use_lane_detector:
-                    pass
-                    # snapshot, image_rgb, image_windshield = tick_response
-                    # if frame % 2 == 0:
-                    #     traj, viz = get_trajectory_from_lane_detector(ld, image_windshield)
-                else:
-                    snapshot, image_rgb = tick_response
-                    traj = get_trajectory_from_map(m, vehicle,transform2vehicle=0,contain_yaw=1)
-                    traj_object = get_trajectory_from_map(m, vehicle,transform2vehicle=1,contain_yaw=1)
+                snapshot, image_rgb = tick_response
+                traj = get_trajectory_from_map(m, vehicle,transform2vehicle=0,contain_yaw=1)
+                traj_object = get_trajectory_from_map(m, vehicle,transform2vehicle=1,contain_yaw=1)
 
                 # get velocity and angular velocity
-                vel = carla_vec_to_np_array(vehicle.get_velocity())
-                forward = carla_vec_to_np_array(vehicle.get_transform().get_forward_vector())
-                right = carla_vec_to_np_array(vehicle.get_transform().get_right_vector())
-                up = carla_vec_to_np_array(vehicle.get_transform().get_up_vector())
-                vx = vel.dot(forward)
-                vy = vel.dot(right)
-                vz = vel.dot(up)
-                ang_vel = carla_vec_to_np_array(vehicle.get_angular_velocity())
-                w = ang_vel.dot(up)
-                print("vx vy vz w {:.2f} {:.2f} {:.2f} {:.5f}".format(vx,vy,vz,w))
+                # vel = carla_vec_to_np_array(vehicle.get_velocity())
+                # forward = carla_vec_to_np_array(vehicle.get_transform().get_forward_vector())
+                # right = carla_vec_to_np_array(vehicle.get_transform().get_right_vector())
+                # up = carla_vec_to_np_array(vehicle.get_transform().get_up_vector())
+                # vx = vel.dot(forward)
+                # vy = vel.dot(right)
+                # vz = vel.dot(up)
+                # ang_vel = carla_vec_to_np_array(vehicle.get_angular_velocity())
+                # w = ang_vel.dot(up)
+                # print("vx vy vz w {:.2f} {:.2f} {:.2f} {:.5f}".format(vx,vy,vz,w))
 
                 speed = np.linalg.norm( carla_vec_to_np_array(vehicle.get_velocity()))
                 
@@ -219,14 +216,14 @@ def main(use_lane_detector=False, ex=False, save_video=False, half_image=False):
                          0.5*(vehicle.get_wheel_steer_angle(carla.VehicleWheelLocation.FR_Wheel)+vehicle.get_wheel_steer_angle(carla.VehicleWheelLocation.FL_Wheel))]
                 
                 if plan_count%plan_fre == 0:
-                    throttle, steer = controller.get_control(traj,traj_object, speed, desired_speed=25, dt=1./FPS,state = state)
+                    throttle, steer = controller.get_control(traj,traj_object, speed, desired_speed=15, dt=mpc_sample_time,state = state)
                 
-                send_control(vehicle, throttle, steer, 0)
                 plan_count = plan_count + 1
-
+                send_control(vehicle, throttle, steer, 0)
+                
                 fps = round(1.0 / snapshot.timestamp.delta_seconds)
 
-                dist = dist_point_linestring(np.array([0,0]), traj[:,:2])
+                dist = dist_point_linestring(np.array([0,0]), traj_object[:,:2])
 
                 cross_track_error = int(dist*100)
                 max_error = max(max_error, cross_track_error)
@@ -237,13 +234,13 @@ def main(use_lane_detector=False, ex=False, save_video=False, half_image=False):
 
                 # draw txt
                 dy = 18
-                texts = ["FPS (real):                {}".format(int(clock.get_fps())),
-                         "FPS (simulated):           {}".format(fps),
-                         "speed (m/s):               {:.2f}".format(speed),
-                         "lateral error (cm):        {}".format(cross_track_error),
-                         "max lat. error (cm):       {}".format(max_error)
+                texts = ["FPS (real):                % 3.0f "%int(clock.get_fps()),
+                         "FPS (simulated):           % 3.0f "%fps,
+                         "speed (m/s):               % 3.0f" %speed,
+                         "lateral error (cm):        % 3.0f" %cross_track_error,
+                         "max lat. error (cm):       % 3.0f" %max_error,
+                         'Location:% 20s' % ('(% 5.1f, % 5.1f)' % (state[0], state[1])),
                         ]
-
                 info_surface = pygame.Surface((220, main_image_shape[1]))
                 info_surface.set_alpha(100)
                 display.blit(info_surface, (0, 0))    

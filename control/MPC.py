@@ -32,8 +32,8 @@ class MPC:
         self.delta_u1_bound = 0.05    # 输入，\delta U 的范围
         self.delta_u2_bound = 0.0082
         
-        self.Qq = 1                    # 矩阵Q前的系数 
-        self.Rr = 100                  # 矩阵R前的系数
+        self.Qq = 10                    # 矩阵Q前的系数 
+        self.Rr = 200                  # 矩阵R前的系数
         self.Use_relaxation_factor = 1 # 是否使用松弛因子，1使用，0不使用
 
         self.old_sol_x = matrix(np.zeros( (self.Nc*2+self.Use_relaxation_factor,1) ),tc='d') # 用于储存上一时间步的解
@@ -50,7 +50,7 @@ class MPC:
         self.delta_Umin = np.kron(np.ones((self.Nc,1)),self.delta_umin)
         self.delta_Umax = np.kron(np.ones((self.Nc,1)),self.delta_umax)
 
-    def get_control(self,waypoints_world,waypoints_object,speed,state,v_r):
+    def get_control(self,waypoints_world,waypoints_object,speed,state,v_r,dt):
         """获得控制，输入一些必要信息后，返回控制变量，这里返回期望速度和期望前轮转角
 
         首先根据输入的导航点，和当前速度，确定要跟踪的目标点。即pure pursuit中，获得目标点的方法。
@@ -74,6 +74,8 @@ class MPC:
             即当前车辆的x,y坐标(world)(m)，偏航角(deg)，速度(m/s)，前轮偏角(deg)
         v_r : double
             期望速度 (m/s)
+        dt : double
+            采样时间 (s)
 
         Returns
         -------
@@ -106,7 +108,7 @@ class MPC:
         state[2] = math.radians(state[2])
         state[4] = math.radians(state[4])
         # 求解MPC
-        sol = self.Kinematic_Bicycle_MPC(state,reference)
+        sol = self.Kinematic_Bicycle_MPC(state,reference,dt)
         
         # 更新控制量
         # self.U[0][0] = self.U[0][0] + sol[0]
@@ -131,7 +133,7 @@ class MPC:
         
         return output_speed,output_steer
 
-    def Kinematic_Bicycle_MPC(self,state,reference):
+    def Kinematic_Bicycle_MPC(self,state,reference,T):
         """根据所给状态和参考值计算控制量
 
         Parameters
@@ -142,6 +144,8 @@ class MPC:
             即当前车辆的x,y坐标(world)(m)，偏航角(rad)，速度(m/s)，前轮偏角(rad)
         reference : list
             表示路径所给出的参考值，包括 [x_r, y_r, \phi_r, v_r, \delta_r]
+        T : double
+            采样时间(s)
         
         Returns
         -------
@@ -161,7 +165,6 @@ class MPC:
         kesi = np.array(kesi).reshape(-1,1)                      # 变为列向量
         
         # 为直观，以下变量重新赋值了一遍
-        T = 1/30                                                 # 采样时间
         l = self.wheel_base                                      # 车的前后轴长
         Nc  =self.Nc 
         Np  =self.Np 
@@ -318,7 +321,7 @@ class MPCPlusPID:
         self.pid = pid
 
     def get_control(self,waypoints_world,waypoints_object,speed, desired_speed, dt,state):
-        mpc_desire_speed,steer = self.MPC.get_control(waypoints_world,waypoints_object,speed,state,desired_speed)
+        mpc_desire_speed,steer = self.MPC.get_control(waypoints_world,waypoints_object,speed,state,desired_speed,dt)
         self.pid.set_point = mpc_desire_speed
         a = self.pid.get_control(speed,dt)
         return a, steer
