@@ -10,7 +10,8 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "justMyCode": true
+            "justMyCode": true,
+            "env": {"PYTHONPATH":"/home/xzh/software/carla014/PythonAPI/carla"}
         }
     ]
 }

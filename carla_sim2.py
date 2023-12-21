@@ -106,6 +106,45 @@ def send_control(vehicle, throttle, steer, brake,
     control = carla.VehicleControl(throttle, steer, brake, hand_brake, reverse)
     vehicle.apply_control(control)
 
+def display_info(display,texts,font,throttle,steer,dy=18):
+    info_surface = pygame.Surface((220, main_image_shape[1]))
+    info_surface.set_alpha(100)
+    display.blit(info_surface, (0, 0))    
+    
+    for it,t in enumerate(texts):
+        display.blit(
+            font.render(t, True, (255,255,255)), (5, 20+dy*it))
+    
+    v_offset =  20+dy*it + dy
+    display.blit( font.render("Throttle:", True, (255,255,255)), (5, v_offset))
+
+    
+    throttle_rate = np.clip(throttle, 0.0, 1.0)
+    # throttle_rate = vehicle.get_control().throttle
+    bar_width = 106
+    bar_h_offset = 100
+    rect_border = pygame.Rect((bar_h_offset, v_offset+6), (bar_width, 6))
+    pygame.draw.rect(display, (255, 255, 255), rect_border, 1)
+
+    rect = pygame.Rect((bar_h_offset, v_offset+6), (throttle_rate * bar_width, 6))
+    pygame.draw.rect(display, (255, 255, 255), rect)
+
+    v_offset = v_offset + dy
+
+    display.blit( font.render("Steer:", True, (255,255,255)), (5, v_offset))
+    steer_rate = np.clip(steer, -1.0, 1.0)
+    # steer_rate = vehicle.get_control().steer
+    bar_width = 106
+    bar_h_offset = 100
+    rect_border = pygame.Rect((bar_h_offset, v_offset+6), (bar_width, 6))
+    pygame.draw.rect(display, (255, 255, 255), rect_border, 1)
+
+    rect = pygame.Rect(((bar_h_offset+(steer_rate+1)/2*bar_width), v_offset+6), (6, 6))
+    pygame.draw.rect(display, (255, 255, 255), rect)
+
+
+
+    pygame.display.flip() # 将绘制的图像显示在屏幕上   
 
 
 def main(use_lane_detector=False, ex=False, save_video=False, half_image=False):
@@ -195,6 +234,10 @@ def main(use_lane_detector=False, ex=False, save_video=False, half_image=False):
                 traj = get_trajectory_from_map(m, vehicle,transform2vehicle=0,contain_yaw=1)
                 traj_object = get_trajectory_from_map(m, vehicle,transform2vehicle=1,contain_yaw=1)
 
+                for index,point in enumerate(traj):
+                    if index % 5 ==0:
+                        world.debug.draw_point(carla.Location( point[0], point[1], 1),life_time = 0.5)
+
                 # get velocity and angular velocity
                 # vel = carla_vec_to_np_array(vehicle.get_velocity())
                 # forward = carla_vec_to_np_array(vehicle.get_transform().get_forward_vector())
@@ -241,44 +284,7 @@ def main(use_lane_detector=False, ex=False, save_video=False, half_image=False):
                          "max lat. error (cm):       % 3.0f" %max_error,
                          'Location:% 20s' % ('(% 5.1f, % 5.1f)' % (state[0], state[1])),
                         ]
-                info_surface = pygame.Surface((220, main_image_shape[1]))
-                info_surface.set_alpha(100)
-                display.blit(info_surface, (0, 0))    
-                
-                for it,t in enumerate(texts):
-                    display.blit(
-                        font.render(t, True, (255,255,255)), (5, 20+dy*it))
-                
-                v_offset =  20+dy*it + dy
-                display.blit( font.render("Throttle:", True, (255,255,255)), (5, v_offset))
-
-                
-                throttle_rate = np.clip(throttle, 0.0, 1.0)
-                # throttle_rate = vehicle.get_control().throttle
-                bar_width = 106
-                bar_h_offset = 100
-                rect_border = pygame.Rect((bar_h_offset, v_offset+6), (bar_width, 6))
-                pygame.draw.rect(display, (255, 255, 255), rect_border, 1)
-
-                rect = pygame.Rect((bar_h_offset, v_offset+6), (throttle_rate * bar_width, 6))
-                pygame.draw.rect(display, (255, 255, 255), rect)
-
-                v_offset = v_offset + dy
-
-                display.blit( font.render("Steer:", True, (255,255,255)), (5, v_offset))
-                steer_rate = np.clip(steer, -1.0, 1.0)
-                # steer_rate = vehicle.get_control().steer
-                bar_width = 106
-                bar_h_offset = 100
-                rect_border = pygame.Rect((bar_h_offset, v_offset+6), (bar_width, 6))
-                pygame.draw.rect(display, (255, 255, 255), rect_border, 1)
-
-                rect = pygame.Rect(((bar_h_offset+(steer_rate+1)/2*bar_width), v_offset+6), (6, 6))
-                pygame.draw.rect(display, (255, 255, 255), rect)
-
-
-
-                pygame.display.flip() # 将绘制的图像显示在屏幕上
+                display_info(display,texts,font,throttle,steer,dy=dy)
 
                 frame += 1
                 if save_video and frame > 0:
