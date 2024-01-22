@@ -5,7 +5,9 @@ import carla
 import pygame
 import copy
 import numpy as np
+import math
 from pygame.locals import K_p
+from configparser import ConfigParser
 
 color_bar = [(0,   255,  0 , 0),   # Green  LEFT
              (255, 0,    0 , 0),   # Red    RIGHT
@@ -20,9 +22,89 @@ driver_real_view = [[0.1, -0.25 ,1.25],[0,0,0]]    # 正常开车视角
 driver_sim_view1 = [[1.25, 0,    1.25],[0,0,0]]    # 模拟视角，前方视角
 driver_sim_view2 = [[-10, 0,     2.8], [-10,0,0]]  # 模拟视角，后看视角
 
-driver_view = driver_sim_view2
-autopilot_on = False
+driver_view = driver_sim_view1
 
+class Control_with_G29(object):
+    '''
+    设计一个类，用于检测方向盘的输入，并且转换为对应的控制值，存储在成员变量中
+    '''
+    def __init__(self):
+        self._control = carla.VehicleControl()
+        self.autopilot_on = False
+        self._control.steer = 0.0
+        self._control.throttle = 0.0
+        self._control.brake = 0.0
+        self._control.hand_brake = False
+        self._control.reverse = False
+
+        self._autopilot_enabled = False
+        pygame.joystick.init()
+
+        joystick_count = pygame.joystick.get_count()
+        if joystick_count > 1:
+            raise ValueError("Please Connect Just One Joystick")
+
+        self._joystick = pygame.joystick.Joystick(0)
+        self._joystick.init()
+
+        self._parser = ConfigParser()
+        self._parser.read('wheel_config.ini')
+        self._steer_idx     = int( self._parser.get( 'G29 Racing Wheel', 'steering_wheel' ) )
+        self._throttle_idx  = int( self._parser.get( 'G29 Racing Wheel', 'throttle' ) )
+        self._brake_idx     = int( self._parser.get( 'G29 Racing Wheel', 'brake' ) )
+        self._reverse_idx   = int( self._parser.get( 'G29 Racing Wheel', 'reverse' ) )
+        self._handbrake_idx = int( self._parser.get( 'G29 Racing Wheel', 'handbrake' ) )
+    
+    def parse_events(self,agent,destination):
+        for event in pygame.event.get():
+            if event.type == pygame.JOYBUTTONDOWN:
+                if event.button == 23:
+                    self.autopilot_on = not self.autopilot_on
+                    # 如果重新开启了自动驾驶，则重新设定目标路线，重新规划
+                    if self.autopilot_on:
+                        agent.set_destination(destination)
+                
+                elif event.button == 4:
+                    self._control.gear = 1 if self._control.reverse else -1
+
+        if not self._autopilot_enabled:
+            self._parse_vehicle_wheel()
+            self._control.reverse = self._control.gear < 0
+    
+    def _parse_vehicle_wheel(self):
+        numAxes = self._joystick.get_numaxes()
+        jsInputs = [float(self._joystick.get_axis(i)) for i in range(numAxes)]
+        # print (jsInputs)
+        jsButtons = [float(self._joystick.get_button(i)) for i in
+                     range(self._joystick.get_numbuttons())]
+
+        # Custom function to map range of inputs [1, -1] to outputs [0, 1] i.e 1 from inputs means nothing is pressed
+        # For the steering, it seems fine as it is
+        K1 = 1.0  # 0.55
+        steerCmd = K1 * math.tan(1.1 * jsInputs[self._steer_idx])
+
+        K2 = 1.6  # 1.6
+        throttleCmd = K2 + (2.05 * math.log10(
+            -0.7 * jsInputs[self._throttle_idx] + 1.4) - 1.2) / 0.92
+        if throttleCmd <= 0:
+            throttleCmd = 0
+        elif throttleCmd > 1:
+            throttleCmd = 1
+
+        brakeCmd = 1.6 + (2.05 * math.log10(
+            -0.7 * jsInputs[self._brake_idx] + 1.4) - 1.2) / 0.92
+        if brakeCmd <= 0:
+            brakeCmd = 0
+        elif brakeCmd > 1:
+            brakeCmd = 1
+
+        self._control.steer = steerCmd
+        self._control.brake = brakeCmd
+        self._control.throttle = throttleCmd
+
+        #toggle = jsButtons[self._reverse_idx]
+
+        self._control.hand_brake = bool(jsButtons[self._handbrake_idx])
 
 def autopilot(vehicle,destination):
     # 输入对应车辆，目的地，返回路径点，控制等
@@ -48,7 +130,7 @@ def draw_waypoint(route,world):
                            carla.Location(x,y,z+5),
                            arrow_size=0.5,)  
 
-def display_info(display,texts,font,vehicle,speed,font_speed,dy=18):
+def display_info(display,texts,font,vehicle,speed,font_speed,autopilot_on,dy=18):
     info_surface = pygame.Surface((220, main_image_shape[1]/4))
     info_surface.set_alpha(100)
     display.blit(info_surface, (0, 0))    
@@ -97,15 +179,6 @@ def carla_vec_to_np_array(vec):
                      vec.y,
                      vec.z])
 
-def demo_toggle_autopilot():
-    global autopilot_on
-    for event in pygame.event.get():
-        if event.type == pygame.KEYUP:   #TODO 以后把DualControl对应部分给改了，用G29上的按键event.type == pygame.JOYBUTTONDOWN:
-            if event.key == K_p:    
-                autopilot_on = not autopilot_on
-                return 1
-        return 0
-
 def send_control(vehicle, throttle, steer, brake,
                  hand_brake=False, reverse=False):
     throttle = np.clip(throttle, 0.0, 1.0)
@@ -129,6 +202,7 @@ def main():
     client.set_timeout(80.0)
     client.load_world('Town04')
     world = client.get_world()
+    controller = Control_with_G29()
     try:
         m = world.get_map()
 
@@ -157,7 +231,7 @@ def main():
         
         # 绘制auto规划路点
         destination = m.get_spawn_points()[190].location
-        route,agent = autopilot(vehicle,destination)
+        route,agent = autopilot(vehicle,destination) # 注意，这里我修改了carla的源码，才使得autopilot能返回路点
         draw_waypoint(route,world)
 
         # 放置观测者
@@ -176,17 +250,18 @@ def main():
                 clock.tick() 
                 tick_response = sync_mode.tick(timeout=2.0)
                 
-                toggle2auto = demo_toggle_autopilot()
-                # 如果重新开启了自动驾驶，则重新设定目标路线，重新规划
-                if toggle2auto: 
-                    agent.set_destination(destination)
+                controller.parse_events(agent,destination)
                 
-                if autopilot_on:
+                if controller.autopilot_on:
                     control = agent.run_step()
                     control.manual_gear_shift = False
                     vehicle.apply_control(control)
                 else:
-                    send_control(vehicle,0,0,0) #TODO: 此处填上手动控制逻辑
+                    send_control(vehicle,controller._control.throttle,
+                                        controller._control.steer,
+                                        controller._control.brake,
+                                        controller._control.hand_brake,
+                                        controller._control.reverse) #TODO: 此处填上手动控制逻辑
                 
                 
                 snapshot, image_rgb = tick_response
@@ -202,15 +277,16 @@ def main():
                          'Location:% 20s' % ('(% 5.1f, % 5.1f)' % (vehicle.get_transform().location.x, vehicle.get_transform().location.y)),
                          'Yaw:                       % 3.0f' %vehicle.get_transform().rotation.yaw
                         ]                
-                display_info(display,texts,font,vehicle,speed,font_speed,dy=18)
+                display_info(display,texts,font,vehicle,speed,font_speed,controller.autopilot_on,dy=18)
                 
                 if agent.done():
+                    # 如果完成了一圈
                     if all_finish:
                         for actor in actor_list:
                             if actor is not None:
                                 actor.destroy()
                         break
-                                
+                    # 如果才跑完半圈            
                     if not all_finish:
                         destination = m.get_spawn_points()[288].location
                         route = agent.set_destination(destination)
