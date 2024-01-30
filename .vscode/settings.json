@@ -18,5 +18,6 @@
         "titleBar.inactiveBackground": "#7a997299",
         "titleBar.inactiveForeground": "#15202b99"
     },
-    "peacock.color": "#7a9972"
+    "peacock.color": "#7a9972",
+    "ros.distro": "galactic"
 }
