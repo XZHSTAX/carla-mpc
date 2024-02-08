@@ -1,5 +1,5 @@
 from agents.navigation.behavior_agent import BehaviorAgent
-from util.carla_util import CarlaSyncMode, should_quit,draw_image_np,carla_img_to_array
+from util.carla_util import CarlaSyncMode, draw_image_np,carla_img_to_array
 import random
 import carla
 import pygame
@@ -8,7 +8,7 @@ import numpy as np
 import math
 from pygame.locals import K_p
 from configparser import ConfigParser
-
+from pygame.locals import *
 color_bar = [(0,   255,  0 , 0),   # Green  LEFT
              (255, 0,    0 , 0),   # Red    RIGHT
              (0,   0,   0  , 0),   # Black  STRAIGHT
@@ -44,8 +44,8 @@ class Control_with_G29(object):
         if joystick_count > 1:
             raise ValueError("Please Connect Just One Joystick")
 
-        self._joystick = pygame.joystick.Joystick(0)
-        self._joystick.init()
+        # self._joystick = pygame.joystick.Joystick(0)
+        # self._joystick.init()
 
         self._parser = ConfigParser()
         self._parser.read('wheel_config.ini')
@@ -63,13 +63,26 @@ class Control_with_G29(object):
                     # 如果重新开启了自动驾驶，则重新设定目标路线，重新规划
                     if self.autopilot_on:
                         agent.set_destination(destination)
+                if event.button == 22:           #TODO: 确定使用方向盘上的哪个键来退出
+                    return True
                 
                 elif event.button == 4:
                     self._control.gear = 1 if self._control.reverse else -1
+            elif event.type == pygame.KEYDOWN:
+                if event.type == pygame.QUIT:
+                    return True
+                elif event.key == pygame.K_ESCAPE:
+                    return True
+                elif event.key == K_p:
+                    self.autopilot_on = not self.autopilot_on
+                    # 如果重新开启了自动驾驶，则重新设定目标路线，重新规划
+                    if self.autopilot_on:
+                        agent.set_destination(destination)                    
 
         if not self._autopilot_enabled:
-            self._parse_vehicle_wheel()
+            # self._parse_vehicle_wheel()
             self._control.reverse = self._control.gear < 0
+        return False
     
     def _parse_vehicle_wheel(self):
         numAxes = self._joystick.get_numaxes()
@@ -244,13 +257,11 @@ def main():
 
         with CarlaSyncMode(world, *sensors,fps=FPS) as sync_mode: 
             while(1):
-
-                if should_quit():
-                    return
                 clock.tick() 
                 tick_response = sync_mode.tick(timeout=2.0)
                 
-                controller.parse_events(agent,destination)
+                if controller.parse_events(agent,destination):
+                    return
                 
                 if controller.autopilot_on:
                     control = agent.run_step()
@@ -261,7 +272,7 @@ def main():
                                         controller._control.steer,
                                         controller._control.brake,
                                         controller._control.hand_brake,
-                                        controller._control.reverse) #TODO: 此处填上手动控制逻辑
+                                        controller._control.reverse) 
                 
                 
                 snapshot, image_rgb = tick_response
