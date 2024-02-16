@@ -234,9 +234,9 @@ def main(use_lane_detector=False, ex=False, save_video=False, half_image=False):
                 traj = get_trajectory_from_map(m, vehicle,transform2vehicle=0,contain_yaw=1)
                 traj_object = get_trajectory_from_map(m, vehicle,transform2vehicle=1,contain_yaw=1)
 
-                for index,point in enumerate(traj):
-                    if index % 5 ==0:
-                        world.debug.draw_point(carla.Location( point[0], point[1], 1),life_time = 0.5)
+                # for index,point in enumerate(traj):
+                #     if index % 5 ==0:
+                #         world.debug.draw_point(carla.Location( point[0], point[1], 1),life_time = 0.5)
 
                 # get velocity and angular velocity
                 # vel = carla_vec_to_np_array(vehicle.get_velocity())
@@ -262,6 +262,7 @@ def main(use_lane_detector=False, ex=False, save_video=False, half_image=False):
                     throttle, steer = controller.get_control(traj,traj_object, speed, desired_speed=15, dt=mpc_sample_time,state = state)
                 
                 plan_count = plan_count + 1
+                
                 send_control(vehicle, throttle, steer, 0)
                 
                 fps = round(1.0 / snapshot.timestamp.delta_seconds)
