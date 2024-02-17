@@ -28,13 +28,15 @@ driver_sim_view2 = [[-10, 0,     2.8], [-10,0,0]]  # 模拟视角，后看视角
 
 driver_view = driver_sim_view1
 
+ct_point = carla.Location(-82.68668,4.825,0)
+
 class Control_with_G29(object):
     '''
     设计一个类，用于检测方向盘的输入，并且转换为对应的控制值，存储在成员变量中
     '''
     def __init__(self):
         self._control = carla.VehicleControl()
-        self.autopilot_on = False
+        self.autopilot_on = True
         self._control.steer = 0.0
         self._control.throttle = 0.0
         self._control.brake = 0.0
@@ -188,6 +190,15 @@ def display_info(display,texts,font,vehicle,speed,font_speed,autopilot_on,dy=18)
     if autopilot_on:
         autopilot_on_str = "Auto"
         display.blit( font_speed.render(autopilot_on_str, True, (255,0,0)), (10,main_image_shape[1]-90 ))
+    else:
+        autopilot_off_str = "AutoPilot OFF!!!"
+        text_surface = font_speed.render(autopilot_off_str, True, (255,0,0))
+        text_width = text_surface.get_width()
+        text_height = text_surface.get_height()
+        text_x = (main_image_shape[0] - text_width) // 2
+        text_y = (main_image_shape[1] - text_height) // 2
+        display.blit( text_surface, (text_x, 0))
+
 
     pygame.display.flip() # 将绘制的图像显示在屏幕上  
 
@@ -244,7 +255,23 @@ def waypoint2traj(wps, vehicle,transform2vehicle = 1,contain_yaw = 0):
     
     return traj    
 
-def reach_destination(vehicle,destination,radius=3):
+def reach_destination(vehicle,destination,radius=5):
+    """
+
+    Parameters
+    ----------
+    vehicle : carla.Vehicle
+        车辆对应api
+    destination : carla.Location
+        目的地
+    radius : int, optional
+        半径, by default 5
+
+    Returns
+    -------
+    bool
+        如果车辆位置处于目的地前后左右半径内，则返回true，否则返回false
+    """
     x = vehicle.get_transform().location.x
     y = vehicle.get_transform().location.y
     if x <= destination.x+radius and x >= destination.x-radius and y <= destination.y+radius and y >= destination.y-radius:
@@ -308,8 +335,8 @@ def main():
         spectator.set_transform(carla.Transform(transform.location + carla.Location(z=20),
                                                             carla.Rotation(pitch=-90)))
 
-        all_finish = 0
         plan_count = 0
+        reach_ct_point = 0
         with CarlaSyncMode(world, *sensors,fps=FPS) as sync_mode: 
             while(1):
                 clock.tick() 
@@ -327,7 +354,7 @@ def main():
                 if controller_human.autopilot_on:
                     if plan_count%plan_fre == 0:
                         traj_object = waypoint2traj(route,vehicle,transform2vehicle=1,contain_yaw=1)
-                        throttle, steer = controller_machine.get_control(traj,traj_object, speed, desired_speed=10, dt=mpc_sample_time,state = state)
+                        throttle, steer = controller_machine.get_control(traj,traj_object, speed, desired_speed=15, dt=mpc_sample_time,state = state)
                     plan_count = plan_count + 1
                     send_control(vehicle,throttle,steer,0) 
                 else:
@@ -364,6 +391,10 @@ def main():
                 #         route = agent.set_destination(destination)
                 #         draw_waypoint(route,world)
                 #         all_finish = 1
+                if not reach_ct_point:
+                    if reach_destination(vehicle,ct_point,radius=1):
+                        controller_human.autopilot_on = 0
+                        reach_ct_point = 1
                 if reach_destination(vehicle,destination):
                     controller_human.autopilot_on = 0
     finally:
