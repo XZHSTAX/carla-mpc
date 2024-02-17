@@ -337,6 +337,7 @@ def main():
 
         plan_count = 0
         reach_ct_point = 0
+        shared_control_transform = 0
         with CarlaSyncMode(world, *sensors,fps=FPS) as sync_mode: 
             while(1):
                 clock.tick() 
@@ -356,7 +357,19 @@ def main():
                         traj_object = waypoint2traj(route,vehicle,transform2vehicle=1,contain_yaw=1)
                         throttle, steer = controller_machine.get_control(traj,traj_object, speed, desired_speed=15, dt=mpc_sample_time,state = state)
                     plan_count = plan_count + 1
-                    send_control(vehicle,throttle,steer,0) 
+                    send_control(vehicle,throttle,steer,0)
+                elif shared_control_transform:
+                    #TODO: 在此处添加平滑过度逻辑,这里先写一个简单的线性分配：
+                    aplha = 0.5
+                    if plan_count%plan_fre == 0:
+                        traj_object = waypoint2traj(route,vehicle,transform2vehicle=1,contain_yaw=1)
+                        throttle, steer = controller_machine.get_control(traj,traj_object, speed, desired_speed=15, dt=mpc_sample_time,state = state)
+                    plan_count = plan_count + 1
+                    send_control(vehicle,aplha * controller_human._control.throttle + (1- aplha)*throttle,
+                                        aplha * controller_human._control.steer + (1- aplha)*steer,
+                                        controller_human._control.brake,
+                                        controller_human._control.hand_brake,
+                                        controller_human._control.reverse)                     
                 else:
                     send_control(vehicle,controller_human._control.throttle,
                                         controller_human._control.steer,
@@ -377,24 +390,13 @@ def main():
                          'Yaw:                       % 3.0f' %vehicle.get_transform().rotation.yaw
                         ]                
                 display_info(display,texts,font,vehicle,speed,font_speed,controller_human.autopilot_on,dy=18)
-                
-                # if agent.done():
-                #     # 如果完成了一圈
-                #     if all_finish:
-                #         for actor in actor_list:
-                #             if actor is not None:
-                #                 actor.destroy()
-                #         break
-                #     # 如果才跑完半圈            
-                #     if not all_finish:
-                #         destination = m.get_spawn_points()[288].location
-                #         route = agent.set_destination(destination)
-                #         draw_waypoint(route,world)
-                #         all_finish = 1
+                                
+                # 如果到达接管触发点，则结束完全自动驾驶，开启
                 if not reach_ct_point:
                     if reach_destination(vehicle,ct_point,radius=1):
                         controller_human.autopilot_on = 0
                         reach_ct_point = 1
+                        shared_control_transform = 0
                 if reach_destination(vehicle,destination):
                     controller_human.autopilot_on = 0
     finally:
