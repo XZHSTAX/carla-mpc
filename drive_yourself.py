@@ -44,8 +44,8 @@ class Control_with_G29(object):
         if joystick_count > 1:
             raise ValueError("Please Connect Just One Joystick")
 
-        # self._joystick = pygame.joystick.Joystick(0)
-        # self._joystick.init()
+        self._joystick = pygame.joystick.Joystick(0)
+        self._joystick.init()
 
         self._parser = ConfigParser()
         self._parser.read('wheel_config.ini')
@@ -80,7 +80,7 @@ class Control_with_G29(object):
                         agent.set_destination(destination)                    
 
         if not self._autopilot_enabled:
-            # self._parse_vehicle_wheel()
+            self._parse_vehicle_wheel()
             self._control.reverse = self._control.gear < 0
         return False
     

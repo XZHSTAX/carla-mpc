@@ -7,6 +7,18 @@ Moment_inertia = 0.00767
 max_torque_Nm = 2.1
 damping = Moment_inertia * 24.30
 
+class LowPassFilter:
+    def __init__(self, cutoff_freq, sampling_freq, num_taps=5):
+        self.cutoff_freq = cutoff_freq
+        self.sampling_freq = sampling_freq
+        self.b, self.a = butter(num_taps, 2 * cutoff_freq / sampling_freq, 'low', analog=False)
+        self.buffer = []
+
+    def filter(self, new_data):
+        self.buffer.append(new_data)
+        filtered_data = lfilter(self.b, self.a, self.buffer)[-1]
+        return filtered_data
+
 def butter_lowpass(cutoff_freq, fs, order=5):
     """_summary_
 
@@ -56,7 +68,7 @@ def caculated_ex_torque(angle_dot,angle_ddot):
     return Moment_inertia * angle_ddot - m_torque*max_torque_Nm + damping * angle_dot
 
 # 使用read_csv函数读取没有表头的csv文件
-data = pd.read_csv('output_new4.txt', header=None, names=['time', 'angle','m_torque' ,'ex_torque'])
+data = pd.read_csv('output_without_filter.txt', header=None, names=['time', 'angle','m_torque' ,'ex_torque'])
 
 time = data['time']
 angle = data['angle']
@@ -94,6 +106,22 @@ ex_torque_compute_lfilter2 = caculated_ex_torque(angle_dot_lfilter,angle_ddot_lf
 
 ex_torque_compute_smooth   = caculated_ex_torque(angle_dot_smooth,angle_ddot_smooth)
 ex_torque_compute_smooth2  = caculated_ex_torque(angle_dot_smooth,angle_ddot_smooth2)
+
+LowPassFilter_for_angle_dot  = LowPassFilter(cutoff_freq,fs)
+LowPassFilter_for_angle_ddot = LowPassFilter(cutoff_freq,fs)
+LowPassFilter_for_ex_torque =  LowPassFilter(cutoff_freq,fs)
+
+angle_dot_lfilter2 = []
+angle_ddot_lfilter3 = []
+ex_torque_filter = []
+for data in zip(angle_dot,angle_ddot,ex_torque):
+    data1  = LowPassFilter_for_angle_dot.filter(data[0])  
+    data2 = LowPassFilter_for_angle_ddot.filter(data[1])
+    data3 = LowPassFilter_for_ex_torque.filter(data[2])
+    angle_dot_lfilter2.append(data1)
+    angle_ddot_lfilter3.append(data2)
+    ex_torque_filter.append(data3)
+
 
 # 第一个图用来对比原始数据，滑动平均窗口数据和低通滤波数据；通过此图，可以看出不同的滤波，对原始加速度数据的效果如何
 fig1 = plt.figure()
@@ -202,6 +230,24 @@ ax4.plot(ex_torque_compute_lfilter.index, ex_torque_compute_lfilter2, label='ex_
 ax4.set_title(r'external torque(filter2)')
 
 # -------------------------------------------------------------------------
+# 第五幅图，对比整体滤波和惯顺滤波
+fig5 = plt.figure()
+ax1 = fig5.add_subplot(2, 2, 1)
+ax1.plot(angle_ddot.index, angle_dot_lfilter, label='angel_dot_filter')
+ax1.set_title(r'$\omega$-filter')
+
+ax2 = fig5.add_subplot(2, 2, 3)
+ax2.plot(angle_ddot.index, angle_dot_lfilter2, label='angel_dot_filter2')
+ax2.set_title(r'$\omega$-filter2')
+
+ax3 = fig5.add_subplot(2, 2, 2)
+ax3.plot(angle_ddot.index, angle_ddot_lfilter, label='angel_ddot_filter')
+ax3.set_title(r'$\alpha$-filter')
+
+ax4 = fig5.add_subplot(2, 2, 4)
+ax4.plot(angle_ddot.index, angle_ddot_lfilter3, label='angle_ddot_lfilter3')
+ax4.set_title(r'$\alpha$-filter3')
+# -------------------------------------------------------------------------
 fig = plt.figure()
 # 创建第一个子图
 ax1 = fig.add_subplot(2, 3, 1)
@@ -225,7 +271,7 @@ ax4.set_title(r'machine torque')
 
 # 创建第五个子图
 ax5 = fig.add_subplot(2, 3, 5)
-ax5.plot(ex_torque.index, ex_torque_compute_lfilter, label='ex_torque(caculated)')
+ax5.plot(ex_torque.index, ex_torque_filter, label='ex_torque(caculated)')
 ax5.set_title(r'external torque(caculated)')
 
 # 创建第六个子图

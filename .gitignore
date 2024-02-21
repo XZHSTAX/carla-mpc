@@ -1,2 +1,4 @@
 data.csv
 data1.csv
+*.txt
+test.py

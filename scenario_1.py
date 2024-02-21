@@ -50,8 +50,8 @@ class Control_with_G29(object):
         if joystick_count > 1:
             raise ValueError("Please Connect Just One Joystick")
 
-        # self._joystick = pygame.joystick.Joystick(0)
-        # self._joystick.init()
+        self._joystick = pygame.joystick.Joystick(0)
+        self._joystick.init()
 
         self._parser = ConfigParser()
         self._parser.read('wheel_config.ini')
@@ -69,7 +69,7 @@ class Control_with_G29(object):
                     # 如果重新开启了自动驾驶，则重新设定目标路线，重新规划
                     if self.autopilot_on:
                         agent.set_destination(destination)
-                if event.button == 22:           #TODO: 确定使用方向盘上的哪个键来退出
+                if event.button == 0:     # 如果按下 "X" 键，则结束      
                     return True
                 
                 elif event.button == 4:
@@ -86,7 +86,7 @@ class Control_with_G29(object):
                         agent.set_destination(destination)                    
 
         if not self._autopilot_enabled:
-            # self._parse_vehicle_wheel()
+            self._parse_vehicle_wheel()
             self._control.reverse = self._control.gear < 0
         return False
     
